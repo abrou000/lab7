@@ -1,0 +1,256 @@
+---
+title: "LAb7"
+author: "Alain Brou & Doukoure"
+date: "11/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, eval=TRUE}
+attach(data_use1)
+usevarb<- (AGE_P>= 18) & (AGE_P <= 55)
+data_now<-subset(data_use1,usevarb)
+detach()
+attach(data_now)
+```
+
+
+```{r}
+data_now$earn_lastyr <- as.factor(data_now$ERNYR_P)
+levels(data_now$earn_lastyr) <- c("0","$01-$4999","$5000-$9999","$10000-$14999","$15000-$19999","$20000-$24999","$25000-$34999","$35000-$44999","$45000-$54999","$55000-$64999","$65000-$74999","$75000 and over",NA,NA,NA)
+
+```
+
+# the purpose of this subset is to limit the interval of Age for better understnading
+# i also tried to include new variables such as personal_health status but it has not been excellent when running on the test data, so i dropped it 
+
+
+```{r}
+model_logit1 <- glm(NOTCOV ~ AGE_P + I(AGE_P^2) + female+ I(female*AfAm) + AfAm + Asian + RaceOther  
+                    + Hispanic + educ_hs + educ_smcoll + educ_as + educ_bach + educ_adv 
+                    + married + widowed + divorc_sep + veteran_stat + REGION + region_born,
+                    family = binomial, data = data_now)
+summary(model_logit1)
+```
+
+ 
+
+
+```{r}
+d_region <- data.frame(model.matrix(~ data_now$REGION))
+d_region_born <- data.frame(model.matrix(~ factor(data_now$region_born)))  # snips any with zero in the subgroup
+dat_for_analysis_sub <- data.frame(
+  data_now$NOTCOV,
+  data_now$AGE_P,
+  data_now$female,
+  data_now$AfAm,
+  data_now$Asian,
+  data_now$RaceOther,
+  data_now$Hispanic,
+  data_now$educ_hs,
+  data_now$educ_smcoll,
+  data_now$educ_as,
+  data_now$educ_bach,
+  data_now$educ_adv,
+  data_now$married,
+  data_now$widowed,
+  data_now$divorc_sep,
+  d_region[,2:4],
+  d_region_born[,2:12]) # need [] since model.matrix includes intercept term
+
+names(dat_for_analysis_sub) <- c("NOTCOV",
+                                 "Age",
+                                 "female",
+                                 "AfAm",
+                                 "Asian",
+                                 "RaceOther",
+                                 "Hispanic",
+                                 "educ_hs",
+                                 "educ_smcoll",
+                                 "educ_as",
+                                 "educ_bach",
+                                 "educ_adv",
+                                 "married",
+                                 "widowed",
+                                 "divorc_sep",
+                                 "Region.Midwest",
+                                 "Region.South",
+                                 "Region.West",
+                                 "born.Mex.CentAm.Carib",
+                                 "born.S.Am",
+                                 "born.Eur",
+                                 "born.f.USSR",
+                                 "born.Africa",
+                                 "born.MidE",
+                                 "born.India.subc",
+                                 "born.Asia",
+                                 "born.SE.Asia",
+                                 "born.elsewhere",
+                                 "born.unknown")
+```
+
+#the principle of standardization is to get all the values under a normal curve. this will help  minimze the value of predictor
+```{r}
+require("standardize")
+set.seed(654321)
+NN <- length(dat_for_analysis_sub$NOTCOV)
+#restrict_1 <- as.logical(round(runif(NN,min=0,max=0.55))) # use fraction as training data
+restrict_1<-(runif(NN)<0.1) # we use 10% as train data and 70% as test data
+summary(restrict_1)
+dat_train <- subset(dat_for_analysis_sub, restrict_1)
+dat_test <- subset(dat_for_analysis_sub, !restrict_1)
+sobj <- standardize(NOTCOV ~ Age + female + I(female*AfAm) +AfAm + Asian + RaceOther + Hispanic + 
+                      educ_hs + educ_smcoll + educ_as + educ_bach + educ_adv + 
+                      married + widowed + divorc_sep +
+                      Region.Midwest + Region.South + Region.West + 
+                      born.Mex.CentAm.Carib + born.S.Am + born.Eur + born.f.USSR + 
+                      born.Africa + born.MidE + born.India.subc + born.Asia + 
+                      born.SE.Asia + born.elsewhere + born.unknown, dat_train, family = binomial)
+
+s_dat_test <- predict(sobj, dat_test)
+summary(s_dat_test)
+
+```
+
+#the prediction base is effectively 90% of data , 10.1% is considered as train data covered.
+
+# we also see the predict of not covered in born Mexico and central America is high. this could be analyzed through the migration and the crossing of the borders. many who come in united states might be entered through illegal ways  which restarined them to be enrolled in any coverage. this also explain the high rate of hidpanics not covered 23% amomg this race and 14% among African American
+
+
+
+# now let'see what the linear probability model gives. this model helps to call the standardized regression SOBJ. then after we see what the Logit prediction gives
+
+
+
+```{r}
+# LPM
+model_lpm1 <- lm(sobj$formula, data = sobj$data)
+summary(model_lpm1)
+pred_vals_lpm <- predict(model_lpm1, s_dat_test)
+pred_model_lpm1 <- (pred_vals_lpm > 0.5)
+table(pred = pred_model_lpm1, true = dat_test$NOTCOV)
+```
+
+# the predict probality linear model give 1671 not covered 
+
+
+```{r}
+# logit 
+model_logit1 <- glm(sobj$formula, family = binomial, data = sobj$data)
+summary(model_logit1)
+pred_vals <- predict(model_logit1, s_dat_test, type = "response")
+pred_model_logit1 <- (pred_vals > 0.5)
+table(pred = pred_model_logit1, true = dat_test$NOTCOV)
+```
+
+#the logit model gives 1802 uncovered
+
+
+
+```{r}
+require('randomForest')
+set.seed(54321)
+model_randFor <- randomForest(as.factor(NOTCOV) ~ ., data = sobj$data, importance=TRUE, proximity=TRUE)
+print(model_randFor)
+round(importance(model_randFor),2)
+varImpPlot(model_randFor)
+# look at confusion matrix for this too
+pred_model1 <- predict(model_randFor,  s_dat_test)
+table(pred = pred_model1, true = dat_test$NOTCOV)
+```
+
+# the Random Forest prediction is 1718 not covered 
+
+
+```{r}
+require(e1071)
+# tuned_parameters <- tune.svm(as.factor(NOTCOV) ~ ., data = sobj$data, gamma = 10^(-3:0), cost = 10^(-2:1)) 
+# summary(tuned_parameters)
+# figure best parameters and input into next
+svm.model <- svm(as.factor(NOTCOV) ~ ., data = sobj$data, cost = 10, gamma = 0.1)
+svm.pred <- predict(svm.model, s_dat_test)
+table(pred = svm.pred, true = dat_test$NOTCOV)
+```
+# the svm model prediction yields 2159 Not covered
+
+
+```{r}
+# Elastic Net
+require(glmnet)
+model1_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV) 
+# default is alpha = 1, lasso
+
+par(mar=c(4.5,4.5,1,4))
+plot(model1_elasticnet)
+vnat=coef(model1_elasticnet)
+vnat=vnat[-1,ncol(vnat)] # remove the intercept, and get the coefficients at the end of the path
+axis(4, at=vnat,line=-.5,label=names(sobj$data[,-1]),las=1,tick=FALSE, cex.axis=0.5) 
+
+plot(model1_elasticnet, xvar = "lambda")
+plot(model1_elasticnet, xvar = "dev", label = TRUE)
+print(model1_elasticnet)
+
+cvmodel1_elasticnet = cv.glmnet(data.matrix(sobj$data[,-1]),data.matrix(sobj$data$NOTCOV)) 
+cvmodel1_elasticnet$lambda.min
+log(cvmodel1_elasticnet$lambda.min)
+coef(cvmodel1_elasticnet, s = "lambda.min")
+
+pred1_elasnet <- predict(model1_elasticnet, newx = data.matrix(s_dat_test), s = cvmodel1_elasticnet$lambda.min)
+pred_model1_elasnet <- (pred1_elasnet < mean(pred1_elasnet)) 
+table(pred = pred_model1_elasnet, true = dat_test$NOTCOV)
+
+model2_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV, alpha = 0) 
+# or try different alpha values to see if you can improve
+```
+
+#
+Linear model Prediction
+    true
+pred        0     1
+  FALSE 39698  7990
+  TRUE   1054  1671
+  
+Logit Model Prediction
+    true
+pred        0     1
+  FALSE 39576  7859
+  TRUE   1176  1802
+  
+Random Foreest model prediction
+    true
+pred     0     1
+   0 39766  7943
+   1   986  1718
+  
+  
+svm model prediction
+   true
+pred     0     1
+   0 38662  7502
+   1  2090  2159
+  
+  
+glmnet model pred
+pred        0     1
+  FALSE 27074  3090
+  TRUE  13678  6571
+
+
+```{r}
+lmaccuracy = ( 1671/(39698+ 7990+1054+ 1671))
+glmaccuracy = (1802/(39576+ 7859 + 1176 + 1802))
+rmaccuracy = (1718/(39766+ 7943 + 986+ 1718))
+svmaccuracy = (2159/(2159+7502+38662+2090))
+
+lmaccuracy
+glmaccuracy
+rmaccuracy
+svmaccuracy
+
+```
+
+#the highest accuracy in the prediction values is from the Support vector machine with 0.0428. Then SVM predicted better under the varibales used to address the question.
